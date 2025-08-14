@@ -1,6 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const fileController = require('../controllers/fileController');
+const FileController = require('../controllers/fileController');
 
 const router = express.Router();
 
@@ -34,52 +34,59 @@ const upload = multer({
 });
 
 /**
+ * @route POST /api/files/analyze
+ * @desc 分析文件（预览阶段）
+ * @access Public
+ */
+router.post('/analyze', upload.array('files', 1000), (req, res) => FileController.analyzeFiles(req, res));
+
+/**
  * @route POST /api/files/upload
  * @desc 上传并处理文件（支持单文件和多文件）
  * @access Public
  */
-router.post('/upload', upload.array('files', 1000), fileController.uploadAndProcess);
+router.post('/upload', upload.array('files', 1000), (req, res) => FileController.uploadAndProcess(req, res));
 
 /**
  * @route GET /api/files/result/:sessionId
  * @desc 获取处理结果
  * @access Public
  */
-router.get('/result/:sessionId', fileController.getProcessingResult);
+router.get('/result/:sessionId', (req, res) => FileController.getProcessingResult(req, res));
 
 /**
  * @route GET /api/files/list/:sessionId
  * @desc 获取文件列表和翻译条目
  * @access Public
  */
-router.get('/list/:sessionId', fileController.getFileList);
+router.get('/list/:sessionId', (req, res) => FileController.getFileList(req, res));
 
 /**
  * @route GET /api/files/translations/:sessionId/:filePath
  * @desc 获取特定文件的翻译条目
  * @access Public
  */
-router.get('/translations/:sessionId/:filePath', fileController.getFileTranslations);
+router.get('/translations/:sessionId/:filePath', (req, res) => FileController.getFileTranslations(req, res));
 
 /**
  * @route GET /api/files/export/:sessionId
  * @desc 导出所有翻译条目为CSV
  * @access Public
  */
-router.get('/export/:sessionId', fileController.exportTranslations);
+router.get('/export/:sessionId', (req, res) => FileController.exportTranslations(req, res));
 
 /**
  * @route GET /api/files/export/:sessionId/:filePath
  * @desc 导出特定文件的翻译条目为CSV
  * @access Public
  */
-router.get('/export/:sessionId/:filePath', fileController.exportTranslations);
+router.get('/export/:sessionId/:filePath', (req, res) => FileController.exportTranslations(req, res));
 
 /**
  * @route DELETE /api/files/session/:sessionId
  * @desc 清理会话
  * @access Public
  */
-router.delete('/session/:sessionId', fileController.cleanupSession);
+router.delete('/session/:sessionId', (req, res) => FileController.cleanupSession(req, res));
 
 module.exports = router; 

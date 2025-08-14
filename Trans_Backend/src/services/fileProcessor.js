@@ -150,7 +150,7 @@ class FileProcessor {
           }
         }
       } catch (error) {
-        console.error(`❌ 读取目录失败: ${dir}`, error);
+        console.error(`读取目录失败: ${dir}`, error);
       }
     };
     
@@ -193,7 +193,7 @@ class FileProcessor {
         }
       }
     } catch (error) {
-      console.error(`❌ 列出目录内容失败: ${dir}`, error);
+      console.error(`列出目录内容失败: ${dir}`, error);
     }
   }
 
@@ -212,7 +212,7 @@ class FileProcessor {
         translationEntries.push(...entries);
         
       } catch (error) {
-        console.error(`❌ 处理文件${file.name}失败:`, error);
+        console.error(`处理文件${file.name}失败:`, error);
       }
     }
     
@@ -333,7 +333,7 @@ class FileProcessor {
       const sessionDir = path.join(this.tempDir, sessionId);
       await fs.remove(sessionDir);
     } catch (error) {
-      console.error(`❌ 清理会话文件失败: ${sessionId}`, error);
+      console.error(`清理会话文件失败: ${sessionId}`, error);
     }
   }
 }

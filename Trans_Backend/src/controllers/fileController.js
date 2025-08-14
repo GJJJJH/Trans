@@ -127,9 +127,274 @@ function combineResults(results) {
 
 class FileController {
   /**
+   * 分析文件（预览阶段）
+   */
+  static async analyzeFiles(req, res) {
+    try {
+      console.log('开始文件分析，文件数量:', req.files ? req.files.length : 0);
+      
+      // 检查是否有文件上传
+      if (!req.files || req.files.length === 0) {
+        console.log('没有检测到上传的文件');
+        return res.status(400).json({
+          error: 'No files uploaded',
+          message: '请选择要上传的文件'
+        });
+      }
+
+      // 分析文件，但不进行实际处理
+      const analysisResults = [];
+      let estimatedCount = 0;
+      let hasErrors = false;
+      let errorMessages = [];
+
+      for (const file of req.files) {
+        console.log(`分析文件: ${file.originalname}, 大小: ${file.size} bytes`);
+        
+        try {
+          // 基础文件信息
+          const fileInfo = {
+            name: file.originalname,
+            size: file.size,
+            mimetype: file.mimetype,
+            estimatedEntries: 0
+          };
+
+          // 根据文件类型进行不同的分析
+          const fileName = file.originalname.toLowerCase();
+          
+          if (fileName.endsWith('.json')) {
+            // JSON文件分析
+            try {
+              if (!file.buffer || file.buffer.length === 0) {
+                throw new Error('文件内容为空');
+              }
+              
+              const content = file.buffer.toString('utf8');
+              console.log(`JSON文件内容长度: ${content.length} 字符`);
+              
+              if (content.trim().length === 0) {
+                throw new Error('文件内容为空');
+              }
+              
+              const jsonData = JSON.parse(content);
+              const estimatedEntries = FileController.estimateTranslationEntries(jsonData);
+              
+              fileInfo.estimatedEntries = estimatedEntries;
+              estimatedCount += estimatedEntries;
+              
+              console.log(`JSON文件分析成功: ${file.originalname}, 预估条目: ${estimatedEntries}`);
+              
+            } catch (jsonError) {
+              console.error(`JSON解析失败 ${file.originalname}:`, jsonError.message);
+              
+              // JSON解析失败，尝试基于文件大小估算
+              const sizeBasedEstimate = Math.max(5, Math.floor(file.size / 100));
+              fileInfo.estimatedEntries = sizeBasedEstimate;
+              fileInfo.parseError = `JSON格式错误: ${jsonError.message}`;
+              estimatedCount += sizeBasedEstimate;
+              
+              hasErrors = true;
+              errorMessages.push(`文件 ${file.originalname}: JSON格式错误`);
+            }
+            
+          } else if (fileName.endsWith('.zip')) {
+            // ZIP文件分析
+            fileInfo.estimatedEntries = 50; // 默认估算
+            estimatedCount += 50;
+            console.log(`ZIP文件分析: ${file.originalname}, 预估条目: 50`);
+            
+          } else {
+            // 其他文件类型
+            const sizeBasedEstimate = Math.max(3, Math.floor(file.size / 200));
+            fileInfo.estimatedEntries = sizeBasedEstimate;
+            estimatedCount += sizeBasedEstimate;
+            console.log(`其他文件分析: ${file.originalname}, 预估条目: ${sizeBasedEstimate}`);
+          }
+
+          analysisResults.push(fileInfo);
+          
+        } catch (error) {
+          console.error(`分析文件 ${file.originalname} 失败:`, error.message);
+          
+          // 即使分析失败，也要添加到结果中，给一个基础估算
+          const fallbackEstimate = Math.max(3, Math.floor(file.size / 500));
+          analysisResults.push({
+            name: file.originalname,
+            size: file.size,
+            mimetype: file.mimetype,
+            estimatedEntries: fallbackEstimate,
+            parseError: `分析失败: ${error.message}`
+          });
+          
+          estimatedCount += fallbackEstimate;
+          hasErrors = true;
+          errorMessages.push(`文件 ${file.originalname}: ${error.message}`);
+        }
+      }
+
+      // 确保至少有一个有效文件
+      if (analysisResults.length === 0) {
+        console.log('没有有效的分析结果');
+        return res.status(400).json({
+          error: 'No valid files',
+          message: '没有找到有效的文件'
+        });
+      }
+
+      // 确保预估数量合理，但保持与单个文件预估的一致性
+      const finalEstimatedCount = Math.max(estimatedCount, 1);
+      
+      console.log(`分析完成: ${analysisResults.length} 个文件, 预估 ${finalEstimatedCount} 个翻译条目`);
+      console.log('分析结果:', analysisResults.map(f => `${f.name}: ${f.estimatedEntries}条`));
+
+      res.json({
+        success: true,
+        files: analysisResults,
+        estimatedCount: finalEstimatedCount,
+        message: hasErrors ? 
+          `分析完成，检测到 ${analysisResults.length} 个文件，预估 ${finalEstimatedCount} 个翻译条目（部分文件分析失败）` :
+          `分析完成，检测到 ${analysisResults.length} 个文件，预估 ${finalEstimatedCount} 个翻译条目`,
+        hasErrors,
+        errorMessage: errorMessages.join('; ')
+      });
+
+    } catch (error) {
+      console.error('文件分析失败:', error);
+      res.status(500).json({
+        error: 'File analysis failed',
+        message: error.message || '文件分析失败，请检查文件格式'
+      });
+    }
+  }
+
+  /**
+   * 估算JSON数据中的翻译条目数量
+   */
+  static estimateTranslationEntries(data) {
+    let count = 0;
+    
+    try {
+      const countEntries = (obj, depth = 0) => {
+        // 防止无限递归
+        if (depth > 10) return;
+        
+        if (!obj || typeof obj !== 'object') return;
+        
+        // 处理数组
+        if (Array.isArray(obj)) {
+          obj.forEach((item, index) => {
+            if (typeof item === 'string' && item.trim()) {
+              const text = item.trim();
+              if (FileController.isTranslatableText(text, `array[${index}]`)) {
+                count++;
+              }
+            } else if (typeof item === 'object' && item !== null) {
+              countEntries(item, depth + 1);
+            }
+          });
+          return;
+        }
+        
+        // 处理对象
+        for (const [key, value] of Object.entries(obj)) {
+          try {
+            if (typeof value === 'string' && value.trim()) {
+              const text = value.trim();
+              // 使用与 fileProcessor 相同的判断逻辑
+              if (FileController.isTranslatableText(text, key)) {
+                count++;
+              }
+            } else if (typeof value === 'object' && value !== null) {
+              countEntries(value, depth + 1);
+            }
+          } catch (entryError) {
+            console.error(`处理条目 ${key} 时出错:`, entryError.message);
+            // 继续处理其他条目
+          }
+        }
+      };
+      
+      countEntries(data);
+      
+      // 确保返回合理的数量
+      return Math.max(1, Math.min(count, 1000)); // 最少1个，最多1000个
+      
+    } catch (error) {
+      console.error('估算翻译条目时出错:', error.message);
+      // 返回基于数据大小的估算
+      const dataSize = JSON.stringify(data).length;
+      return Math.max(3, Math.floor(dataSize / 100));
+    }
+  }
+
+  /**
+   * 判断文本是否可翻译（与 fileProcessor 保持一致）
+   */
+  static isTranslatableText(text, key) {
+    try {
+      // 参数验证
+      if (!text || typeof text !== 'string') return false;
+      if (!key || typeof key !== 'string') return false;
+      
+      const trimmedText = text.trim();
+      
+      // 基础过滤条件
+      if (trimmedText.length < 2) return false;
+      if (trimmedText.length > 1000) return false;
+      
+      // 过滤纯数字、符号等
+      if (/^[0-9\s\-_.,;:!?()\[\]{}"'`~@#$%^&*+=|\\/<>]+$/.test(trimmedText)) return false;
+      if (/^[a-zA-Z0-9\s\-_.,;:!?()\[\]{}"'`~@#$%^&*+=|\\/<>]+$/.test(trimmedText)) return false;
+      
+      // 过滤明显的非文本内容
+      if (/^[0-9]+$/.test(trimmedText)) return false; // 纯数字
+      if (/^[a-zA-Z0-9_]+$/.test(trimmedText)) return false; // 纯英文标识符
+      if (/^[0-9a-fA-F]+$/.test(trimmedText) && trimmedText.length > 8) return false; // 可能是哈希值
+      
+      // RPG Maker 特定字段
+      const rpgMakerFields = [
+        'text', 'parameters', 'name', 'description', 'message1', 'message2', 'message3', 'message4',
+        'note', 'memo', 'help', 'hint', 'caption', 'label', 'title', 'content'
+      ];
+      
+      // 通用翻译关键词
+      const translationKeywords = [
+        'name', 'text', 'message', 'description', 'title', 'content',
+        'note', 'memo', 'comment', 'label', 'caption', 'hint',
+        'help', 'info', 'detail', 'summary', 'abstract'
+      ];
+      
+      const keyLower = key.toLowerCase();
+      
+      // 优先检查 RPG Maker 特定字段
+      if (rpgMakerFields.some(field => keyLower.includes(field))) {
+        return true;
+      }
+      
+      // 然后检查通用关键词
+      if (translationKeywords.some(keyword => keyLower.includes(keyword))) {
+        return true;
+      }
+      
+      // 如果字段名不匹配，但文本内容看起来像可翻译的文本
+      // 检查是否包含日文字符或其他非ASCII字符
+      if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(trimmedText)) {
+        return true;
+      }
+      
+      return false;
+      
+    } catch (error) {
+      console.error('判断文本是否可翻译时出错:', error.message);
+      return false;
+    }
+  }
+
+  /**
    * 上传并处理文件
    */
-  async uploadAndProcess(req, res) {
+  static async uploadAndProcess(req, res) {
     try {
       // 检查是否有文件上传（支持单文件和多文件）
       if (!req.files || req.files.length === 0) {
@@ -150,7 +415,7 @@ class FileController {
             results.push(result);
           }
         } catch (error) {
-          console.error(`❌ 处理文件 ${file.originalname} 失败:`, error);
+          console.error(`处理文件 ${file.originalname} 失败:`, error);
           // 继续处理其他文件
         }
       }
@@ -194,7 +459,7 @@ class FileController {
       });
 
     } catch (error) {
-      console.error('❌ 文件上传处理失败:', error);
+      console.error('文件上传处理失败:', error);
       res.status(500).json({
         error: 'File processing failed',
         message: error.message
@@ -205,7 +470,7 @@ class FileController {
   /**
    * 获取处理结果
    */
-  async getProcessingResult(req, res) {
+  static async getProcessingResult(req, res) {
     try {
       const { sessionId } = req.params;
 
@@ -232,7 +497,7 @@ class FileController {
       });
 
     } catch (error) {
-      console.error('❌ 获取处理结果失败:', error);
+      console.error('获取处理结果失败:', error);
       res.status(500).json({
         error: 'Failed to get processing result',
         message: error.message
@@ -243,7 +508,7 @@ class FileController {
   /**
    * 获取文件列表
    */
-  async getFileList(req, res) {
+  static async getFileList(req, res) {
     try {
       const { sessionId } = req.params;
 
@@ -276,7 +541,7 @@ class FileController {
       });
 
     } catch (error) {
-      console.error('❌ 获取文件列表失败:', error);
+      console.error('获取文件列表失败:', error);
       res.status(500).json({
         error: 'Failed to get file list',
         message: error.message
@@ -287,7 +552,7 @@ class FileController {
   /**
    * 获取特定文件的翻译条目
    */
-  async getFileTranslations(req, res) {
+  static async getFileTranslations(req, res) {
     try {
       const { sessionId, filePath } = req.params;
 
@@ -322,7 +587,7 @@ class FileController {
       });
 
     } catch (error) {
-      console.error('❌ 获取文件翻译失败:', error);
+      console.error('获取文件翻译失败:', error);
       res.status(500).json({
         error: 'Failed to get file translations',
         message: error.message
@@ -333,7 +598,7 @@ class FileController {
   /**
    * 导出翻译条目为CSV
    */
-  async exportTranslations(req, res) {
+  static async exportTranslations(req, res) {
     try {
       const { sessionId, filePath } = req.params;
 
@@ -372,7 +637,7 @@ class FileController {
       res.send(csvContent);
 
     } catch (error) {
-      console.error('❌ 导出翻译失败:', error);
+      console.error('导出翻译失败:', error);
       res.status(500).json({
         error: 'Failed to export translations',
         message: error.message
@@ -383,7 +648,7 @@ class FileController {
   /**
    * 清理会话
    */
-  async cleanupSession(req, res) {
+  static async cleanupSession(req, res) {
     try {
       const { sessionId } = req.params;
 
@@ -406,7 +671,7 @@ class FileController {
       });
 
     } catch (error) {
-      console.error('❌ 清理会话失败:', error);
+      console.error('清理会话失败:', error);
       res.status(500).json({
         error: 'Failed to cleanup session',
         message: error.message
@@ -415,4 +680,4 @@ class FileController {
   }
 }
 
-module.exports = new FileController(); 
+module.exports = FileController; 

@@ -6,6 +6,35 @@ class FileApi {
   }
 
   /**
+   * 分析文件（预览阶段）
+   * @param {File|File[]} files - 要分析的文件或文件数组
+   * @returns {Promise<Object>} 分析结果
+   */
+  async analyzeFiles(files) {
+    const formData = new FormData();
+    // 支持单个文件或文件数组
+    if (Array.isArray(files)) {
+      files.forEach(file => {
+        formData.append('files', file);
+      });
+    } else {
+      formData.append('files', files);
+    }
+    
+    const response = await fetch(`${this.baseURL}/files/analyze`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || '文件分析失败');
+    }
+    
+    return await response.json();
+  }
+
+  /**
    * 上传并处理文件
    * @param {File|File[]} files - 要上传的文件或文件数组
    * @returns {Promise<Object>} 处理结果
